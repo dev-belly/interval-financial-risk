@@ -1,0 +1,100 @@
+project:
+  name: "interval-financial-risk"
+  seed: 202608
+  n_jobs: 1
+
+data:
+  use_synthetic: true
+  synthetic:
+    n_companies: 100
+    n_quarters: 12
+    start_date: "2019-01-01"
+    freq: "QE"
+    risk_rate: 0.12
+  raw_path: "data/raw"
+  processed_path: "data/processed"
+
+features:
+  point_features:
+    - "revenue_growth"
+    - "profit_margin"
+    - "operating_cash_flow"
+    - "volatility"
+  interval_features:
+    - "revenue_growth"
+    - "profit_margin"
+    - "operating_cash_flow"
+    - "volatility"
+  interval_window: 4
+  interval_stats:
+    - "mean"
+    - "std"
+    - "q25"
+    - "q75"
+  use_interval_width: true
+  impute_strategy: "median"
+
+models:
+  logistic_baseline:
+    name: "Logistic Baseline"
+    model_type: "logistic_regression"
+    params:
+      max_iter: 1000
+      class_weight: "balanced"
+    feature_set: "point_only"
+
+  elastic_net:
+    name: "Elastic Net + Interval Features"
+    model_type: "elastic_net"
+    params:
+      max_iter: 5000
+      class_weight: "balanced"
+      l1_ratio: 0.5
+      C: 1.0
+    feature_set: "point_and_interval"
+    optimize: false
+
+  lightgbm:
+    name: "LightGBM"
+    model_type: "lightgbm"
+    params:
+      n_estimators: 50
+      max_depth: 3
+      learning_rate: 0.05
+      subsample: 0.8
+      colsample_bytree: 0.8
+      verbose: -1
+    feature_set: "point_and_interval"
+    optimize: false
+
+validation:
+  method: "rolling_window"
+  initial_train_quarters: 6
+  test_quarters: 2
+  step_quarters: 2
+  min_train_samples: 50
+
+evaluation:
+  metrics:
+    - "auc"
+    - "pr_auc"
+    - "brier"
+    - "f1"
+  permutation_n_repeats: 3
+  ablation_groups:
+    - name: "interval_stats"
+      description: "移除所有区间统计特征"
+      remove_patterns: ["_std", "_q25", "_q75", "_width"]
+    - name: "quantiles"
+      description: "移除分位数特征"
+      remove_patterns: ["_q25", "_q75"]
+  calibration_bins: 5
+
+groups:
+  by_industry: true
+  by_time: true
+
+output:
+  figures_dir: "outputs/figures"
+  reports_dir: "outputs/reports"
+  models_dir: "outputs/models"

@@ -1,0 +1,147 @@
+# 区间型财务数据与企业风险识别研究 - 默认实验配置
+# 该配置可在普通笔记本/CI 环境下稳定运行；如需深度超参优化，请使用 config/full_benchmark.yaml。
+
+project:
+  name: "interval-financial-risk"
+  seed: 202608
+  n_jobs: 1
+
+data:
+  # 是否使用合成数据（无真实数据接口时）
+  use_synthetic: true
+  # 合成数据参数
+  synthetic:
+    n_companies: 300
+    n_quarters: 16
+    start_date: "2019-01-01"
+    freq: "QE"
+    risk_rate: 0.12
+  # 原始数据路径（真实数据）
+  raw_path: "data/raw"
+  # 处理后的数据路径
+  processed_path: "data/processed"
+
+# 特征工程配置
+features:
+  # 点特征：单季度单点值
+  point_features:
+    - "revenue_growth"
+    - "profit_margin"
+    - "operating_cash_flow"
+    - "volatility"
+  # 区间特征：基于过去 4 个季度的滚动窗口
+  interval_features:
+    - "revenue_growth"
+    - "profit_margin"
+    - "operating_cash_flow"
+    - "volatility"
+  interval_window: 4
+  interval_stats:
+    - "mean"
+    - "std"
+    - "min"
+    - "max"
+    - "q25"
+    - "q50"
+    - "q75"
+    - "skew"
+    - "kurt"
+  # 是否加入区间宽度特征
+  use_interval_width: true
+  # 缺失值填充策略
+  impute_strategy: "median"
+
+# 模型配置
+models:
+  logistic_baseline:
+    name: "Logistic Baseline"
+    model_type: "logistic_regression"
+    params:
+      max_iter: 1000
+      class_weight: "balanced"
+    feature_set: "point_only"
+
+  elastic_net:
+    name: "Elastic Net + Interval Features"
+    model_type: "elastic_net"
+    params:
+      max_iter: 5000
+      class_weight: "balanced"
+      l1_ratio: 0.5
+      C: 1.0
+    feature_set: "point_and_interval"
+    optimize: false
+
+  xgboost:
+    name: "XGBoost"
+    model_type: "xgboost"
+    params:
+      n_estimators: 200
+      max_depth: 4
+      learning_rate: 0.05
+      subsample: 0.8
+      colsample_bytree: 0.8
+      eval_metric: "logloss"
+    feature_set: "point_and_interval"
+    optimize: false
+
+  lightgbm:
+    name: "LightGBM"
+    model_type: "lightgbm"
+    params:
+      n_estimators: 200
+      max_depth: 4
+      learning_rate: 0.05
+      subsample: 0.8
+      colsample_bytree: 0.8
+      verbose: -1
+    feature_set: "point_and_interval"
+    optimize: false
+
+# 滚动验证配置
+validation:
+  method: "rolling_window"
+  # 初始训练窗口（季度数）
+  initial_train_quarters: 8
+  # 测试窗口（季度数）
+  test_quarters: 2
+  # 步长（季度数）
+  step_quarters: 2
+  # 最小训练样本数
+  min_train_samples: 200
+
+# 评估配置
+evaluation:
+  metrics:
+    - "auc"
+    - "pr_auc"
+    - "brier"
+    - "f1"
+    - "precision"
+    - "recall"
+  # 置换检验次数
+  permutation_n_repeats: 20
+  # 消融检验配置
+  ablation_groups:
+    - name: "interval_stats"
+      description: "移除所有区间统计特征"
+      remove_patterns: ["_std", "_min", "_max", "_q25", "_q50", "_q75", "_skew", "_kurt", "_width"]
+    - name: "quantiles"
+      description: "移除分位数特征"
+      remove_patterns: ["_q25", "_q50", "_q75"]
+    - name: "width"
+      description: "移除区间宽度特征"
+      remove_patterns: ["_width"]
+  # 校准曲线分箱数
+  calibration_bins: 10
+
+# 分组分析
+groups:
+  by_industry: true
+  by_time: true
+
+# 输出配置
+output:
+  figures_dir: "outputs/figures"
+  reports_dir: "outputs/reports"
+  models_dir: "outputs/models"
