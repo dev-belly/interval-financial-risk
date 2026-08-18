@@ -19,9 +19,12 @@ from src.evaluation.ablation import ablation_study
 from src.evaluation.metrics import compute_grouped_metrics, compute_metrics
 from src.evaluation.permutation_test import permutation_importance_test
 from src.evaluation.rolling_validator import RollingWindowValidator
+from src.evaluation.conformal import run_conformal_experiment
+from src.evaluation.double_ml import double_ml_partial_linear
 from src.features.pipeline import FeaturePipeline
 from src.models.base import ModelRegistry, RiskModel
 from src.visualization import plots
+from src.visualization import html_report as html_report_mod
 
 logger = logging.getLogger(__name__)
 
@@ -190,12 +193,55 @@ class ExperimentPipeline:
         plots.plot_ablation_study(ablation_df, figures_dir / "ablation_study.png")
         self.results["ablation"] = ablation_df
 
+        # 5. Conformal prediction -- valid uncertainty intervals (HIGHLIGHT)
+        try:
+            conformal_res = run_conformal_experiment(
+                best_model_class, best_model_cfg, feature_pipe_full,
+                full_train, self.config, alpha=0.1,
+            )
+            self.results["conformal"] = conformal_res
+            plots.plot_conformal_coverage(
+                conformal_res.coverage_curve, figures_dir / "conformal_coverage.png"
+            )
+        except Exception as exc:  # pragma: no cover
+            logger.warning("Conformal prediction skipped: %s", exc)
+
+        # 6. Double ML -- orthogonalized interval-feature effects (HIGHLIGHT)
+        try:
+            confounders = full_train[["industry"]].copy()
+            dm_df = double_ml_partial_linear(
+                X_full, confounders, y_full, fn_full,
+                n_folds=5, random_state=self.config.project.seed,
+            )
+            self.results["double_ml"] = dm_df
+            plots.plot_double_ml(dm_df, figures_dir / "double_ml_effects.png")
+        except Exception as exc:  # pragma: no cover
+            logger.warning("Double ML skipped: %s", exc)
+
+        # keep per-fold predictions for the HTML ROC
+        self.results["all_results"] = all_results
+
         # Grouped analysis
         if self.config.groups.by_industry and "industry" in full_train.columns:
             industry_groups = full_train["industry"].values
             self.results["grouped_industry"] = compute_grouped_metrics(
                 y_full, best_model.predict_proba(X_full), industry_groups
             )
+
+        # 7. Save extra artifacts + interactive HTML report
+        reports_dir = Path(self.config.output.reports_dir)
+        if "conformal" in self.results:
+            self.results["conformal"].coverage_curve.to_csv(
+                reports_dir / "conformal_coverage.csv", index=False
+            )
+        if "double_ml" in self.results:
+            self.results["double_ml"].to_csv(reports_dir / "double_ml_effects.csv", index=False)
+        try:
+            html_report_mod.build_html_report(
+                self.results, self.config, figures_dir, reports_dir
+            )
+        except Exception as exc:  # pragma: no cover
+            logger.warning("HTML report skipped: %s", exc)
 
         # 5. Save artifacts
         self._save_artifacts(summary_df, rolling_df, ablation_df, best_model, feature_pipe_full)

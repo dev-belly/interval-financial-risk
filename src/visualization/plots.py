@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 sns.set_style("whitegrid")
 plt.rcParams["figure.facecolor"] = "white"
 plt.rcParams["axes.facecolor"] = "white"
+# Render Chinese titles correctly on macOS / CI
+plt.rcParams["font.sans-serif"] = [
+    "PingFang SC", "Hiragino Sans GB", "Arial Unicode MS", "Heiti SC", "sans-serif"
+]
+plt.rcParams["axes.unicode_minus"] = False
 
 PALETTE = sns.color_palette("tab10")
 
@@ -167,4 +172,52 @@ def plot_ablation_study(
     ax.set_ylabel("AUC Delta vs. Full Model")
     ax.set_title("Ablation Study: AUC Impact of Feature Groups")
     plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
+    _savefig(fig, output_path)
+
+
+def plot_conformal_coverage(
+    coverage_curve: pd.DataFrame,
+    output_path: Path,
+) -> None:
+    """Nominal vs empirical coverage for split conformal prediction."""
+
+    if coverage_curve is None or len(coverage_curve) == 0:
+        logger.warning("Empty conformal coverage curve; skipping plot")
+        return
+
+    df = coverage_curve.copy()
+    fig, ax = plt.subplots(figsize=(7, 6))
+    ax.plot(df["nominal_coverage"], df["empirical_coverage"], "o-", color="darkorange",
+            label="经验覆盖率")
+    ax.plot([0, 1], [0, 1], "k--", label="理想对角线")
+    ax.set_xlabel("名义覆盖率 (1 - alpha)")
+    ax.set_ylabel("经验覆盖率")
+    ax.set_title("保形预测: 覆盖率校准 (有效性检验)")
+    ax.legend()
+    _savefig(fig, output_path)
+
+
+def plot_double_ml(
+    dm_df: pd.DataFrame,
+    output_path: Path,
+) -> None:
+    """Orthogonalized interval-feature effects with 95% CI error bars."""
+
+    if dm_df is None or len(dm_df) == 0:
+        logger.warning("Empty double-ml results; skipping plot")
+        return
+
+    df = dm_df.sort_values("theta_orthogonalized", key=lambda s: s.abs(), ascending=False).head(15).copy()
+    fig, ax = plt.subplots(figsize=(8, 6))
+    y = np.arange(len(df))
+    theta = df["theta_orthogonalized"].values
+    err_lo = theta - df["ci_low"].values
+    err_hi = df["ci_high"].values - theta
+    ax.barh(y, theta, xerr=[err_lo, err_hi], color="steelblue", alpha=0.85,
+            error_kw={"ecolor": "black", "capsize": 3})
+    ax.set_yticks(y)
+    ax.set_yticklabels(df["feature"])
+    ax.axvline(0, color="black", linewidth=0.8)
+    ax.set_xlabel("theta (正交化边际效应, 控制行业后)")
+    ax.set_title("双机器学习: 区间特征的纯净边际效应")
     _savefig(fig, output_path)
