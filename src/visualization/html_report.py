@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -113,8 +112,13 @@ def build_html_report(
     # ---- Permutation ----
     if results.get("permutation"):
         perm = results["permutation"]
-        feats = perm.get("features", [])
-        drops = perm.get("mean_drop", [])
+        # permutation_importance_test returns one metrics dictionary per
+        # feature.  Convert that mapping to plotting vectors explicitly.
+        items = sorted(
+            perm.items(), key=lambda item: item[1].get("mean_drop", 0.0), reverse=True
+        )[:20]
+        feats = [name for name, _ in items]
+        drops = [values.get("mean_drop", 0.0) for _, values in items]
         fig = go.Figure(go.Bar(x=drops, y=feats, orientation="h"))
         fig.update_layout(title="置换检验 (AUC 下降)", template="plotly_dark", height=380)
         _add(fig, "置换重要性检验")

@@ -52,8 +52,8 @@ class ElasticNetModel(RiskModel):
         logger.info("Trained %s on %d samples, %d features", self.name, X.shape[0], X.shape[1])
 
     def _optimize_params(self, X: np.ndarray, y: np.ndarray, base_params: dict[str, Any]) -> dict[str, Any]:
-        from sklearn.model_selection import StratifiedKFold
         from sklearn.metrics import roc_auc_score
+        from sklearn.model_selection import StratifiedKFold
 
         cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=self.project_config.project.seed)
 

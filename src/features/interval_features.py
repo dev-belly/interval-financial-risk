@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 
-import numpy as np
 import pandas as pd
 
 from src.config import Config
@@ -74,7 +73,7 @@ def build_interval_features(df: pd.DataFrame, config: Config) -> pd.DataFrame:
             logger.warning("Interval feature %s not found in data; skipping", feature)
             continue
 
-        rolled = df.groupby("company_id", group_keys=False).apply(
+        rolled = df.groupby("company_id", group_keys=False)[[feature]].apply(
             lambda g: _rolling_stats(g, feature, window, stats)
         )
         feature_frames.append(rolled)

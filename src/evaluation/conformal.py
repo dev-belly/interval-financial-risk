@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -37,10 +36,16 @@ def _conformal_radius(y_cal: np.ndarray, p_cal: np.ndarray, alpha: float, n_cal:
     Nonconformity score s = |y - p| lives in [0, 1]. Finite-sample quantile
     level uses the standard (n+1) correction for split conformal.
     """
+    if n_cal <= 0 or len(y_cal) != n_cal or len(p_cal) != n_cal:
+        raise ValueError("Calibration arrays must be non-empty and have matching lengths")
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must be strictly between 0 and 1")
     scores = np.abs(y_cal - p_cal)
     level = np.ceil((n_cal + 1) * (1.0 - alpha)) / n_cal
     level = float(min(max(level, 0.0), 1.0))
-    return float(np.quantile(scores, level))
+    # The finite-sample conformal construction uses an order statistic, not a
+    # linearly interpolated percentile.
+    return float(np.quantile(scores, level, method="higher"))
 
 
 def conformal_interval(p_test: np.ndarray, eps: float) -> tuple[np.ndarray, np.ndarray]:
@@ -89,24 +94,41 @@ def run_conformal_experiment(
     config,
     alpha: float = 0.1,
     cal_fraction: float = 0.2,
+    features_precomputed: bool = False,
 ) -> ConformalResult:
     """Run a properly held-out split-conformal experiment.
 
-    full_train is split into train / calibration / test by time order so that
-    the conformal model never sees calibration or test data (valid coverage).
+    ``full_train`` is split by unique report dates so that each period belongs
+    wholly to train, calibration, or test.  This avoids the row-order bug that
+    would otherwise split a company-sorted panel by company rather than time.
     """
     from src.features.pipeline import FeaturePipeline
     from src.models.base import RiskModel
 
-    n = len(full_train)
-    i1 = int(n * (1.0 - 2 * cal_fraction))
-    i2 = int(n * (1.0 - cal_fraction))
-    train_part = full_train.iloc[:i1].copy()
-    cal_part = full_train.iloc[i1:i2].copy()
-    test_part = full_train.iloc[i2:].copy()
+    if not 0.0 < cal_fraction < 0.5:
+        raise ValueError("cal_fraction must be strictly between 0 and 0.5")
+
+    if features_precomputed:
+        prepared = full_train.copy()
+    else:
+        from src.features.interval_features import build_interval_features
+
+        prepared = build_interval_features(full_train, config)
+    prepared = prepared.sort_values(["report_date", "company_id"]).reset_index(drop=True)
+    dates = pd.DatetimeIndex(pd.to_datetime(prepared["report_date"]).unique()).sort_values()
+    if len(dates) < 3:
+        raise ValueError("Conformal evaluation requires at least three report dates")
+    i1 = max(1, int(len(dates) * (1.0 - 2 * cal_fraction)))
+    i2 = min(len(dates) - 1, int(len(dates) * (1.0 - cal_fraction)))
+    if i1 >= i2:
+        raise ValueError("Not enough report dates for train/calibration/test splits")
+
+    train_part = prepared[prepared["report_date"].isin(dates[:i1])].copy()
+    cal_part = prepared[prepared["report_date"].isin(dates[i1:i2])].copy()
+    test_part = prepared[prepared["report_date"].isin(dates[i2:])].copy()
 
     fp = FeaturePipeline(config)
-    X_tr, y_tr, _ = fp.fit_transform(train_part)
+    X_tr, y_tr, _ = fp.fit_transform(train_part, engineer_features=False)
     if model_cfg.feature_set == "point_only":
         point = config.features.point_features
         idx = [i for i, nm in enumerate(fp.get_feature_names()) if nm in point]
@@ -118,7 +140,7 @@ def run_conformal_experiment(
     conf_model.fit(X_tr, y_tr)
 
     def _proba(part: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-        Xp, yp, _ = fp.transform(part)
+        Xp, yp, _ = fp.transform(part, engineer_features=False)
         if model_cfg.feature_set == "point_only":
             Xp = Xp[:, idx]
         return conf_model.predict_proba(Xp), yp

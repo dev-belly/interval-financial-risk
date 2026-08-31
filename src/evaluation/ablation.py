@@ -10,15 +10,16 @@ import pandas as pd
 
 from src.config import Config
 from src.evaluation.metrics import compute_metrics
-from src.models.base import RiskModel
 
 logger = logging.getLogger(__name__)
 
 
 def ablation_study(
     model_builder: Any,
-    X: np.ndarray,
-    y: np.ndarray,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_test: np.ndarray,
+    y_test: np.ndarray,
     feature_names: list[str],
     config: Config,
 ) -> pd.DataFrame:
@@ -28,8 +29,10 @@ def ablation_study(
     ----------
     model_builder:
         Callable that returns a fresh, unfitted RiskModel instance.
-    X, y:
-        Full training data.
+    X_train, y_train:
+        Training data used to fit each candidate model.
+    X_test, y_test:
+        Held-out data used for every metric comparison.
     feature_names:
         Ordered list of feature names corresponding to X columns.
     config:
@@ -43,9 +46,9 @@ def ablation_study(
 
     # Full model baseline
     full_model = model_builder()
-    full_model.fit(X, y)
-    full_proba = full_model.predict_proba(X)
-    full_metrics = compute_metrics(y, full_proba)
+    full_model.fit(X_train, y_train)
+    full_proba = full_model.predict_proba(X_test)
+    full_metrics = compute_metrics(y_test, full_proba)
 
     rows = [{"ablation": "full", "description": "All features", **full_metrics}]
 
@@ -61,11 +64,12 @@ def ablation_study(
             logger.warning("Ablation group %s removed all features; skipping", group.name)
             continue
 
-        X_abl = X[:, keep_cols]
+        X_train_abl = X_train[:, keep_cols]
+        X_test_abl = X_test[:, keep_cols]
         model = model_builder()
-        model.fit(X_abl, y)
-        proba = model.predict_proba(X_abl)
-        metrics = compute_metrics(y, proba)
+        model.fit(X_train_abl, y_train)
+        proba = model.predict_proba(X_test_abl)
+        metrics = compute_metrics(y_test, proba)
 
         row = {"ablation": group.name, "description": group.description}
         for k, v in metrics.items():

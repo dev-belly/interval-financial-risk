@@ -21,6 +21,7 @@ data/raw/*
 data/processed/*
 data/synthetic/*.parquet
 data/synthetic/*.csv
+data/synthetic/*.json
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/synthetic/.gitkeep

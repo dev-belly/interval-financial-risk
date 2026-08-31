@@ -9,10 +9,10 @@ codebase can rely on absolute :class:`~pathlib.Path` objects.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
-import logging
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 

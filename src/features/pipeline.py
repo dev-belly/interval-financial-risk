@@ -38,7 +38,9 @@ class FeaturePipeline:
         feature_cols = [c for c in df.columns if c not in exclude]
         return df[feature_cols]
 
-    def fit_transform(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+    def fit_transform(
+        self, df: pd.DataFrame, *, engineer_features: bool = True
+    ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
         """Build features, fit preprocessor, and transform data.
 
         Returns
@@ -46,7 +48,8 @@ class FeaturePipeline:
         X, y, metadata
         """
 
-        df = build_interval_features(df, self.config)
+        if engineer_features:
+            df = build_interval_features(df, self.config)
         feature_df = self._select_features(df)
         self.numeric_features = feature_df.select_dtypes(include=[np.number]).columns.tolist()
         self.feature_names = self.numeric_features.copy()
@@ -87,13 +90,16 @@ class FeaturePipeline:
         )
         return X_processed, y, metadata
 
-    def transform(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+    def transform(
+        self, df: pd.DataFrame, *, engineer_features: bool = True
+    ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
         """Transform new data using the already-fit preprocessor."""
 
         if self._preprocessor is None:
             raise RuntimeError("Pipeline has not been fit yet. Call fit_transform first.")
 
-        df = build_interval_features(df, self.config)
+        if engineer_features:
+            df = build_interval_features(df, self.config)
         feature_df = self._select_features(df)
 
         # Align columns to training features

@@ -55,8 +55,8 @@ class XGBoostModel(RiskModel):
         logger.info("Trained %s on %d samples, %d features", self.name, X.shape[0], X.shape[1])
 
     def _optimize_params(self, X: np.ndarray, y: np.ndarray, base_params: dict[str, Any], estimator_cls: Any) -> dict[str, Any]:
-        from sklearn.model_selection import StratifiedKFold
         from sklearn.metrics import roc_auc_score
+        from sklearn.model_selection import StratifiedKFold
 
         cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=self.project_config.project.seed)
         base_copy = {k: v for k, v in base_params.items() if k not in {"max_depth", "learning_rate", "subsample", "colsample_bytree", "n_estimators"}}
@@ -132,8 +132,8 @@ class LightGBMModel(RiskModel):
         logger.info("Trained %s on %d samples, %d features", self.name, X.shape[0], X.shape[1])
 
     def _optimize_params(self, X: np.ndarray, y: np.ndarray, base_params: dict[str, Any], estimator_cls: Any) -> dict[str, Any]:
-        from sklearn.model_selection import StratifiedKFold
         from sklearn.metrics import roc_auc_score
+        from sklearn.model_selection import StratifiedKFold
 
         cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=self.project_config.project.seed)
         base_copy = {k: v for k, v in base_params.items() if k not in {"max_depth", "learning_rate", "subsample", "colsample_bytree", "n_estimators", "num_leaves"}}

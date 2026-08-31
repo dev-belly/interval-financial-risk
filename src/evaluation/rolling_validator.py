@@ -42,23 +42,22 @@ class RollingWindowValidator:
         n_dates = len(self.unique_dates)
         start = initial
 
-        while start + test_window <= n_dates:
+        while start + 2 * test_window <= n_dates:
             train_end = start
             val_start = start
             val_end = min(start + test_window, n_dates)
             test_start = val_end
-            test_end = min(test_start + test_window, n_dates)
-
-            if test_end > n_dates:
-                break
+            test_end = test_start + test_window
 
             train_dates = self.unique_dates[:train_end]
             val_dates = self.unique_dates[val_start:val_end]
             test_dates = self.unique_dates[test_start:test_end]
 
-            train_idx = df.index[df["report_date"].isin(train_dates)].to_numpy()
-            val_idx = df.index[df["report_date"].isin(val_dates)].to_numpy()
-            test_idx = df.index[df["report_date"].isin(test_dates)].to_numpy()
+            # Return positional indices: callers use ``iloc`` and DataFrame
+            # labels are not guaranteed to be a zero-based RangeIndex.
+            train_idx = np.flatnonzero(df["report_date"].isin(train_dates).to_numpy())
+            val_idx = np.flatnonzero(df["report_date"].isin(val_dates).to_numpy())
+            test_idx = np.flatnonzero(df["report_date"].isin(test_dates).to_numpy())
 
             if len(train_idx) < min_samples or len(test_idx) < 10:
                 start += step

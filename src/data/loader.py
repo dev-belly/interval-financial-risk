@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -29,14 +30,32 @@ class SyntheticDataLoader(DataLoader):
     def __init__(self, config: Config):
         self.config = config
         self.path = config.data_synthetic_path
+        self.metadata_path = self.path.with_suffix(".metadata.json")
+
+    def _metadata(self) -> dict:
+        return {
+            "seed": self.config.project.seed,
+            "synthetic": self.config.data.synthetic.model_dump(mode="json"),
+        }
 
     def load(self) -> pd.DataFrame:
-        if self.path.exists():
-            logger.info("Loading existing synthetic data from %s", self.path)
-            return pd.read_parquet(self.path)
+        expected_metadata = self._metadata()
+        if self.path.exists() and self.metadata_path.exists():
+            try:
+                cached_metadata = json.loads(self.metadata_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                cached_metadata = None
+            if cached_metadata == expected_metadata:
+                logger.info("Loading matching synthetic data from %s", self.path)
+                return pd.read_parquet(self.path)
+            logger.info("Synthetic cache does not match the active config; regenerating")
 
         logger.info("Synthetic data not found; regenerating...")
-        return generate_synthetic_data(self.config, output_path=self.path)
+        df = generate_synthetic_data(self.config, output_path=self.path)
+        self.metadata_path.write_text(
+            json.dumps(expected_metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return df
 
 
 class RealDataLoader(DataLoader):

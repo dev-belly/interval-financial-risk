@@ -30,10 +30,13 @@ INDUSTRIES = [
 ]
 
 
-def _add_missing_and_outliers(series: pd.Series, missing_rate: float = 0.02, outlier_rate: float = 0.01) -> pd.Series:
+def _add_missing_and_outliers(
+    series: pd.Series,
+    rng: np.random.Generator,
+    missing_rate: float = 0.02,
+    outlier_rate: float = 0.01,
+) -> pd.Series:
     """Inject missing values and outliers to simulate real-world data issues."""
-
-    rng = np.random.default_rng(abs(hash(series.name)) % 2**32)
     series = series.copy()
 
     # Missing values
@@ -128,16 +131,9 @@ def generate_synthetic_data(config: Config, output_path: Path | None = None) -> 
 
     df = pd.DataFrame(records)
 
-    # Add noise/outliers
-    for col in ["revenue_growth", "profit_margin", "operating_cash_flow", "volatility"]:
-        df[col] = _add_missing_and_outliers(df[col])
-
-    # Forward-fill within company to mimic stale but complete reporting
-    df = df.sort_values(["company_id", "report_date"])
-    for col in ["revenue_growth", "profit_margin", "operating_cash_flow", "volatility"]:
-        df[col] = df.groupby("company_id")[col].transform(lambda x: x.ffill().bfill())
-
-    # Compute latent risk score and risk label
+    # Compute the latent label from the clean signal.  Observation noise and
+    # missingness are injected afterwards so a missing value never needs to be
+    # back-filled from a future quarter (which would leak future information).
     risk_score = (
         -2.0 * df["revenue_growth"]
         -1.5 * df["profit_margin"]
@@ -152,6 +148,18 @@ def generate_synthetic_data(config: Config, output_path: Path | None = None) -> 
     # Calibrate positive rate to target
     threshold = np.percentile(risk_score, 100 * (1 - risk_rate))
     df["risk_label"] = (risk_score >= threshold).astype(int)
+
+    # Add deterministic observation noise/outliers.  Using the experiment RNG
+    # (rather than Python's process-randomised ``hash``) makes repeated runs
+    # with the same configured seed byte-for-byte reproducible.
+    for col in ["revenue_growth", "profit_margin", "operating_cash_flow", "volatility"]:
+        df[col] = _add_missing_and_outliers(df[col], rng)
+
+    # Only carry observations forward.  Initial missing values remain missing
+    # and are handled by the training-only imputer in FeaturePipeline.
+    df = df.sort_values(["company_id", "report_date"]).reset_index(drop=True)
+    for col in ["revenue_growth", "profit_margin", "operating_cash_flow", "volatility"]:
+        df[col] = df.groupby("company_id")[col].ffill()
 
     logger.info(
         "Generated synthetic data: %d companies x %d quarters = %d rows, risk_rate=%.3f",

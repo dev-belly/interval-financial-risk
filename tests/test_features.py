@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from src.config import load_config
+from src.data.loader import SyntheticDataLoader
 from src.data.synthetic_generator import generate_synthetic_data
 from src.features.interval_features import build_interval_features
 from src.features.pipeline import FeaturePipeline
@@ -43,3 +44,23 @@ def test_feature_pipeline_fit_transform(config, synthetic_df):
     assert X.shape[1] == len(pipeline.get_feature_names())
     assert len(y) == len(synthetic_df)
     assert not pd.isna(X).any()
+
+
+def test_synthetic_generation_is_reproducible(config):
+    first = generate_synthetic_data(config)
+    second = generate_synthetic_data(config)
+    pd.testing.assert_frame_equal(first, second)
+
+
+def test_synthetic_cache_is_invalidated_when_config_changes(config, tmp_path):
+    small = config.model_copy(deep=True)
+    small.project_root = tmp_path
+    small.data.synthetic.n_companies = 8
+    small.data.synthetic.n_quarters = 6
+    first = SyntheticDataLoader(small).load()
+    assert len(first) == 48
+
+    changed = small.model_copy(deep=True)
+    changed.data.synthetic.n_companies = 9
+    second = SyntheticDataLoader(changed).load()
+    assert len(second) == 54

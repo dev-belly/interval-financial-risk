@@ -7,7 +7,6 @@ import logging
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
-from src.config import Config
 from src.models.base import RiskModel
 
 logger = logging.getLogger(__name__)

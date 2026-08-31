@@ -24,3 +24,14 @@ def test_grouped_metrics():
     assert "A" in result
     assert "B" in result
     assert 0 <= result["A"]["auc"] <= 1
+
+
+def test_single_class_auc_is_nan_instead_of_crashing():
+    metrics = compute_metrics(np.zeros(4, dtype=int), np.array([0.1, 0.2, 0.3, 0.4]))
+    assert np.isnan(metrics["auc"])
+    assert np.isnan(metrics["pr_auc"])
+
+
+def test_invalid_probabilities_are_rejected():
+    with pytest.raises(ValueError, match="probabilities"):
+        compute_metrics(np.array([0, 1]), np.array([0.2, 1.2]))

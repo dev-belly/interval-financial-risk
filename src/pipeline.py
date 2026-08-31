@@ -11,20 +11,20 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.metrics import roc_auc_score
 
 from src.config import Config
 from src.data.loader import load_data
 from src.evaluation.ablation import ablation_study
+from src.evaluation.conformal import run_conformal_experiment
+from src.evaluation.double_ml import double_ml_partial_linear
 from src.evaluation.metrics import compute_grouped_metrics, compute_metrics
 from src.evaluation.permutation_test import permutation_importance_test
 from src.evaluation.rolling_validator import RollingWindowValidator
-from src.evaluation.conformal import run_conformal_experiment
-from src.evaluation.double_ml import double_ml_partial_linear
+from src.features.interval_features import build_interval_features
 from src.features.pipeline import FeaturePipeline
 from src.models.base import ModelRegistry, RiskModel
-from src.visualization import plots
 from src.visualization import html_report as html_report_mod
+from src.visualization import plots
 
 logger = logging.getLogger(__name__)
 
@@ -45,22 +45,32 @@ class ExperimentPipeline:
         df = load_data(self.config)
         logger.info("Loaded data: %d rows, %d columns", len(df), len(df.columns))
 
+        # Build trailing-window features once on the chronological panel.  A
+        # test fold can then use observations from the immediately preceding
+        # training/validation quarters without fitting its imputer/scaler on
+        # any future row.
+        prepared_df = build_interval_features(df, self.config)
+
         # 2. Rolling validation
-        validator = RollingWindowValidator(self.config, df["report_date"])
+        validator = RollingWindowValidator(self.config, prepared_df["report_date"])
 
         all_results: dict[str, list[dict[str, Any]]] = {}
         rolling_rows = []
         fold_idx = 0
 
-        for train_idx, val_idx, test_idx in validator.split(df):
+        for train_idx, val_idx, test_idx in validator.split(prepared_df):
             fold_idx += 1
-            train_df = df.iloc[train_idx].copy()
-            test_df = df.iloc[test_idx].copy()
+            train_df = prepared_df.iloc[train_idx].copy()
+            test_df = prepared_df.iloc[test_idx].copy()
 
             # Feature pipeline fit on training data
             feature_pipe = FeaturePipeline(self.config)
-            X_train, y_train, train_meta = feature_pipe.fit_transform(train_df)
-            X_test, y_test, test_meta = feature_pipe.transform(test_df)
+            X_train, y_train, train_meta = feature_pipe.fit_transform(
+                train_df, engineer_features=False
+            )
+            X_test, y_test, test_meta = feature_pipe.transform(
+                test_df, engineer_features=False
+            )
             feature_names = feature_pipe.get_feature_names()
 
             for model_key, model_cfg in self.config.models.items():
@@ -96,6 +106,8 @@ class ExperimentPipeline:
                     "y_pred": y_pred,
                     "metrics": metrics,
                     "feature_names": fn,
+                    "train_end_date": train_df["report_date"].max(),
+                    "test_start_date": test_df["report_date"].min(),
                     "test_end_date": test_df["report_date"].max(),
                 }
                 all_results.setdefault(model_cfg.name, []).append(fold_result)
@@ -110,14 +122,24 @@ class ExperimentPipeline:
                 )
 
         rolling_df = pd.DataFrame(rolling_rows)
+        if rolling_df.empty:
+            raise ValueError(
+                "Rolling validation produced no usable folds; increase the date range "
+                "or reduce validation.min_train_samples"
+            )
         self.results["rolling"] = rolling_df
 
         # Aggregate metrics across folds
         summary_rows = []
         for model_name, folds in all_results.items():
             metrics_list = [f["metrics"] for f in folds]
-            avg_metrics = {k: float(np.mean([m[k] for m in metrics_list])) for k in metrics_list[0]}
-            std_metrics = {f"{k}_std": float(np.std([m[k] for m in metrics_list])) for k in metrics_list[0]}
+            avg_metrics = {
+                k: float(np.nanmean([m[k] for m in metrics_list])) for k in metrics_list[0]
+            }
+            std_metrics = {
+                f"{k}_std": float(np.nanstd([m[k] for m in metrics_list]))
+                for k in metrics_list[0]
+            }
             summary_rows.append({"model": model_name, **avg_metrics, **std_metrics})
         summary_df = pd.DataFrame(summary_rows)
         self.results["summary"] = summary_df
@@ -140,12 +162,30 @@ class ExperimentPipeline:
         best_model_key = last_fold["model_key"]
         best_model_cfg = self.config.models[best_model_key]
 
-        # Refit best model on all historical data for diagnostics
+        # Refit using only observations available before the final test fold.
+        # Permutation, ablation and grouped metrics are then evaluated on that
+        # held-out fold rather than optimistically on the fitting sample.
+        diagnostic_train = prepared_df[
+            prepared_df["report_date"] < last_fold["test_start_date"]
+        ].copy()
+        diagnostic_test = prepared_df[
+            (prepared_df["report_date"] >= last_fold["test_start_date"])
+            & (prepared_df["report_date"] <= last_fold["test_end_date"])
+        ].copy()
         feature_pipe_full = FeaturePipeline(self.config)
-        full_train = df[df["report_date"] <= last_fold["test_end_date"]].copy()
-        X_full, y_full, _ = feature_pipe_full.fit_transform(full_train)
+        X_train_diag, y_train_diag, _ = feature_pipe_full.fit_transform(
+            diagnostic_train, engineer_features=False
+        )
+        X_test_diag, y_test_diag, _ = feature_pipe_full.transform(
+            diagnostic_test, engineer_features=False
+        )
         if best_model_cfg.feature_set == "point_only":
-            X_full = self._select_point_features(X_full, feature_pipe_full.get_feature_names())
+            X_train_diag = self._select_point_features(
+                X_train_diag, feature_pipe_full.get_feature_names()
+            )
+            X_test_diag = self._select_point_features(
+                X_test_diag, feature_pipe_full.get_feature_names()
+            )
             fn_full = self._point_feature_names(feature_pipe_full.get_feature_names())
         else:
             fn_full = feature_pipe_full.get_feature_names()
@@ -158,7 +198,7 @@ class ExperimentPipeline:
             self.config,
         )
         best_model.feature_names = fn_full
-        best_model.fit(X_full, y_full)
+        best_model.fit(X_train_diag, y_train_diag)
 
         # Feature importance
         importances = best_model.get_feature_importance()
@@ -169,8 +209,8 @@ class ExperimentPipeline:
         # Permutation test
         perm_results = permutation_importance_test(
             best_model,
-            X_full,
-            y_full,
+            X_test_diag,
+            y_test_diag,
             fn_full,
             n_repeats=self.config.evaluation.permutation_n_repeats,
             random_state=self.config.project.seed,
@@ -189,7 +229,15 @@ class ExperimentPipeline:
             m.feature_names = fn_full
             return m
 
-        ablation_df = ablation_study(model_builder, X_full, y_full, fn_full, self.config)
+        ablation_df = ablation_study(
+            model_builder,
+            X_train_diag,
+            y_train_diag,
+            X_test_diag,
+            y_test_diag,
+            fn_full,
+            self.config,
+        )
         plots.plot_ablation_study(ablation_df, figures_dir / "ablation_study.png")
         self.results["ablation"] = ablation_df
 
@@ -197,7 +245,10 @@ class ExperimentPipeline:
         try:
             conformal_res = run_conformal_experiment(
                 best_model_class, best_model_cfg, feature_pipe_full,
-                full_train, self.config, alpha=0.1,
+                prepared_df[prepared_df["report_date"] <= last_fold["test_end_date"]],
+                self.config,
+                alpha=0.1,
+                features_precomputed=True,
             )
             self.results["conformal"] = conformal_res
             plots.plot_conformal_coverage(
@@ -208,9 +259,9 @@ class ExperimentPipeline:
 
         # 6. Double ML -- orthogonalized interval-feature effects (HIGHLIGHT)
         try:
-            confounders = full_train[["industry"]].copy()
+            confounders = diagnostic_train[["industry"]].copy()
             dm_df = double_ml_partial_linear(
-                X_full, confounders, y_full, fn_full,
+                X_train_diag, confounders, y_train_diag, fn_full,
                 n_folds=5, random_state=self.config.project.seed,
             )
             self.results["double_ml"] = dm_df
@@ -222,10 +273,10 @@ class ExperimentPipeline:
         self.results["all_results"] = all_results
 
         # Grouped analysis
-        if self.config.groups.by_industry and "industry" in full_train.columns:
-            industry_groups = full_train["industry"].values
+        if self.config.groups.by_industry and "industry" in diagnostic_test.columns:
+            industry_groups = diagnostic_test["industry"].values
             self.results["grouped_industry"] = compute_grouped_metrics(
-                y_full, best_model.predict_proba(X_full), industry_groups
+                y_test_diag, best_model.predict_proba(X_test_diag), industry_groups
             )
 
         # 7. Save extra artifacts + interactive HTML report

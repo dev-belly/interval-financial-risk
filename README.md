@@ -24,16 +24,16 @@
 ### 1. 保形预测（Conformal Prediction）—— 给概率装上"误差条"
 
 普通模型只吐一个点概率（如"风险 0.76"），在金融场景里这是危险的：0.76 和 0.74 常被当作确信不同的两个数。
-本平台用 **Split Conformal** 把点估计转成**统计有效的置信区间** `[p-ε, p+ε]`，其边际覆盖率
-`P(y ∈ 区间) ≥ 1-α` 由有限样本理论保证（无需任何分布假设，Angelopoulos & Bates, 2021）。
-本实验中 `α=0.10` 时经验覆盖率 `0.894 ≈ 0.90`，验证有效；区间宽度随模型不确定性自动伸缩——这正是可信 AI 的核心。
+本平台用按报告期切分的 **Split Conformal** 把点预测转成标签预测区间
+`[p-ε, p+ε]`，并报告样本外经验覆盖率。经典有限样本覆盖结论依赖样本可交换性；
+金融时间序列存在漂移和截面相关，因此这里把覆盖率当作诊断指标，而不是无条件保证或“概率置信区间”。
 
 ### 2. 双机器学习（Double / Debiased ML）—— 剥离混淆后的"纯净"效应
 
 朴素逻辑回归会把行业、规模等混淆变量的影响混进区间特征系数。本平台用 **Chernozhukov et al. (2018) 的双机器学习**
 做正交化：用交叉拟合估计 `g(W)=E[Y|W]` 与 `m(X|W)=E[X|W]`，再对残差 `r_y ~ θ·r_x` 做回归。
-结果 `θ` 是**控制行业/规模后**区间特征对风险的纯净边际效应，并附 95% 置信区间。
-实验中 4 个区间特征在控制行业后**全部显著**，直接回答了研究核心问题："区间特征到底有没有增量价值"。
+结果 `θ` 是控制配置中混杂变量后的正交化线性关联，并附 95% 置信区间。
+它用于稳健性诊断；没有外生处理或完整识别假设时，不解释为因果效应。
 
 ### 3. 可交互 HTML 报告（Plotly）
 
@@ -84,7 +84,8 @@ python scripts/run_experiment.py --config config/config.yaml
 ### 3. 查看报告
 
 ```bash
-jupyter lab notebooks/01_experiment_report.ipynb
+open outputs/reports/report.html       # macOS
+# 或直接用浏览器打开 outputs/reports/report.html
 ```
 
 ---
@@ -103,7 +104,7 @@ jupyter lab notebooks/01_experiment_report.ipynb
 
 ## 技术栈
 
-- **Python 3.13**
+- **Python 3.11+**
 - **数据处理**：Polars、Pandas、NumPy
 - **机器学习**：scikit-learn、XGBoost、LightGBM、CatBoost
 - **超参优化**：Optuna
