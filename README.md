@@ -2,7 +2,7 @@
 
 > Interval Financial Data for Enterprise Risk Identification
 
-基于公开季度财务报表与行情数据，将营收增速、利润率、现金流和波动率由单点指标扩展为季度区间与分布型特征，系统比较点估计模型与区间/分布特征模型对企业风险标签的增量识别能力。
+当前以合成季度财务与行情特征验证研究流程，将营收增速、利润率、现金流和波动率由单点指标扩展为季度区间与分布型特征，比较点估计模型与区间/分布特征模型对模拟风险标签的增量识别能力。仓库提供本地 CSV / Parquet 真实数据加载入口；公开数据采集、真实风险标签构建与真实市场实证尚待完成。
 
 ---
 
@@ -92,9 +92,9 @@ open outputs/reports/report.html       # macOS
 
 ## 数据说明
 
-当前仓库内置**合成数据生成器**（`src/data/synthetic_generator.py`），可生成具有真实统计特性的季度财报与行情数据，用于在没有付费数据接口的情况下验证完整 Pipeline。
+当前默认使用**合成数据生成器**（`src/data/synthetic_generator.py`），按预设分布、行业效应和风险关系生成季度特征，用于验证完整 Pipeline。合成数据上的指标不代表真实企业风险识别效果。
 
-若接入真实数据，只需实现 `src/data/loader.py` 中的 `RealDataLoader`，保持输出列名与合成数据一致即可无缝替换。支持的数据源示例：
+`src/data/loader.py` 中的 `RealDataLoader` 可读取配置目录下的 `financial_data.csv` 或 `financial_data.parquet`。接入真实数据仍需自行完成采集、字段与发布日期对齐、风险标签定义及质量检查；下列是可考虑的数据来源，尚未实现自动接入：
 
 - A 股财报：Tushare / AkShare / CSMAR
 - 行情数据：Tushare / Yahoo Finance / 东方财富
