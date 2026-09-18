@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 import optuna
+from sklearn import __version__ as sklearn_version
 from sklearn.linear_model import LogisticRegression
 
 from src.config import Config
@@ -20,7 +21,9 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 class ElasticNetModel(RiskModel):
     """Logistic regression with elastic-net penalty over point + interval features."""
 
-    def __init__(self, config_section: dict[str, Any], feature_set: str, name: str, project_config: Config):
+    def __init__(
+        self, config_section: dict[str, Any], feature_set: str, name: str, project_config: Config
+    ):
         super().__init__(config_section, feature_set, name)
         self.project_config = project_config
         self.optimize = config_section.get("optimize", False)
@@ -33,29 +36,41 @@ class ElasticNetModel(RiskModel):
         return {0: 1.0, 1: n_neg / max(n_pos, 1)}
 
     def _build_estimator(self, params: dict[str, Any]) -> LogisticRegression:
+        params = params.copy()
+        if tuple(int(x) for x in sklearn_version.split(".")[:2]) < (1, 9):
+            params["penalty"] = "elasticnet"
         return LogisticRegression(**params)
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
         params = self.config_section.get("params", {}).copy()
         params.setdefault("max_iter", 5000)
         params.setdefault("solver", "saga")
+        params.setdefault("random_state", self.project_config.project.seed)
         params.setdefault("class_weight", "balanced")
         # sklearn >= 1.9 deprecates explicit `penalty`; use `l1_ratio` to select penalty type.
         params.pop("penalty", None)
 
         if self.optimize:
-            logger.info("Optimizing %s hyperparameters with Optuna (%d trials)", self.name, self.optuna_trials)
+            logger.info(
+                "Optimizing %s hyperparameters with Optuna (%d trials)",
+                self.name,
+                self.optuna_trials,
+            )
             params = self._optimize_params(X, y, params)
 
         self.model = self._build_estimator(params)
         self.model.fit(X, y)
         logger.info("Trained %s on %d samples, %d features", self.name, X.shape[0], X.shape[1])
 
-    def _optimize_params(self, X: np.ndarray, y: np.ndarray, base_params: dict[str, Any]) -> dict[str, Any]:
+    def _optimize_params(
+        self, X: np.ndarray, y: np.ndarray, base_params: dict[str, Any]
+    ) -> dict[str, Any]:
         from sklearn.metrics import roc_auc_score
         from sklearn.model_selection import StratifiedKFold
 
-        cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=self.project_config.project.seed)
+        cv = StratifiedKFold(
+            n_splits=3, shuffle=True, random_state=self.project_config.project.seed
+        )
 
         def objective(trial: optuna.Trial) -> float:
             C = trial.suggest_float("C", 1e-3, 10.0, log=True)
@@ -70,7 +85,10 @@ class ElasticNetModel(RiskModel):
                 scores.append(roc_auc_score(y[val_idx], val_proba))
             return float(np.mean(scores))
 
-        study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=self.project_config.project.seed))
+        study = optuna.create_study(
+            direction="maximize",
+            sampler=optuna.samplers.TPESampler(seed=self.project_config.project.seed),
+        )
         study.optimize(objective, n_trials=self.optuna_trials, show_progress_bar=False)
 
         best = {**base_params, **study.best_params}

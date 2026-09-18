@@ -64,3 +64,27 @@ def test_synthetic_cache_is_invalidated_when_config_changes(config, tmp_path):
     changed.data.synthetic.n_companies = 9
     second = SyntheticDataLoader(changed).load()
     assert len(second) == 54
+
+
+def test_interval_width_does_not_require_exporting_min_max(config, synthetic_df):
+    config.features.interval_stats = ["mean", "std", "q25", "q75"]
+    result = build_interval_features(synthetic_df, config)
+    assert "revenue_growth_min" not in result
+    expected = (
+        synthetic_df.sort_values(["company_id", "report_date"])
+        .groupby("company_id")["revenue_growth"]
+        .transform(lambda x: x.rolling(4, min_periods=1).max() - x.rolling(4, min_periods=1).min())
+    )
+    pd.testing.assert_series_equal(result["revenue_growth_width"], expected, check_names=False)
+
+
+def test_remove_interval_ablation_really_keeps_only_point_features(config, synthetic_df):
+    result = build_interval_features(synthetic_df, config)
+    feature_names = [
+        name for name in result if name.startswith(tuple(config.features.point_features))
+    ]
+    patterns = next(
+        g.remove_patterns for g in config.evaluation.ablation_groups if g.name == "interval_stats"
+    )
+    kept = [name for name in feature_names if not any(p in name for p in patterns)]
+    assert set(kept) == set(config.features.point_features)

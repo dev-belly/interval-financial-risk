@@ -1,12 +1,7 @@
-"""Conformal prediction for statistically valid risk-probability intervals.
+"""Split-conformal intervals for binary labels, not confidence intervals for probabilities.
 
-Standard ML models output a single point probability p in [0, 1]. In financial
-risk work that number alone is dangerous: a 0.76 default probability and a 0.74
-probability should not be treated as confidently different. Split conformal
-prediction turns the point estimate into a *valid* interval [p - eps, p + eps]
-whose marginal coverage P(y in interval) >= 1 - alpha is guaranteed by
-finite-sample theory (Vovk et al., 2005; Angelopoulos & Bates, 2021), with no
-distributional assumptions.
+Coverage requires exchangeable calibration/test scores. Time drift and company
+dependence make the reported empirical coverage a diagnostic, not a guarantee.
 """
 
 from __future__ import annotations
@@ -28,6 +23,7 @@ class ConformalResult:
     test_avg_width: float
     calibration_fraction: float
     coverage_curve: pd.DataFrame = field(default_factory=pd.DataFrame)
+    split_summary: dict = field(default_factory=dict)
 
 
 def _conformal_radius(y_cal: np.ndarray, p_cal: np.ndarray, alpha: float, n_cal: int) -> float:
@@ -41,11 +37,11 @@ def _conformal_radius(y_cal: np.ndarray, p_cal: np.ndarray, alpha: float, n_cal:
     if not 0.0 < alpha < 1.0:
         raise ValueError("alpha must be strictly between 0 and 1")
     scores = np.abs(y_cal - p_cal)
-    level = np.ceil((n_cal + 1) * (1.0 - alpha)) / n_cal
-    level = float(min(max(level, 0.0), 1.0))
-    # The finite-sample conformal construction uses an order statistic, not a
-    # linearly interpolated percentile.
-    return float(np.quantile(scores, level, method="higher"))
+    rank = int(np.ceil((n_cal + 1) * (1.0 - alpha)))
+    # Scores are bounded by one for binary labels and predicted probabilities.
+    if rank > n_cal:
+        return 1.0
+    return float(np.partition(scores, rank - 1)[rank - 1])
 
 
 def conformal_interval(p_test: np.ndarray, eps: float) -> tuple[np.ndarray, np.ndarray]:
@@ -171,4 +167,16 @@ def run_conformal_experiment(
         test_avg_width=test_width,
         calibration_fraction=cal_fraction,
         coverage_curve=curve,
+        split_summary={
+            name: {
+                "start": str(part.report_date.min().date()),
+                "end": str(part.report_date.max().date()),
+                "rows": len(part),
+            }
+            for name, part in [
+                ("train", train_part),
+                ("calibration", cal_part),
+                ("test", test_part),
+            ]
+        },
     )

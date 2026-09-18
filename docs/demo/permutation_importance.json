@@ -1,0 +1,26 @@
+{
+  "revenue_growth": {
+    "mean_drop": 0.10535475234270412,
+    "std_drop": 0.017615559180281706,
+    "p_value": 0.0,
+    "baseline_auc": 0.7264745255531931
+  },
+  "profit_margin": {
+    "mean_drop": 0.012240137018662884,
+    "std_drop": 0.009829019247074734,
+    "p_value": 0.15,
+    "baseline_auc": 0.7264745255531931
+  },
+  "operating_cash_flow": {
+    "mean_drop": 0.0061874950783526676,
+    "std_drop": 0.004195350792042702,
+    "p_value": 0.05,
+    "baseline_auc": 0.7264745255531931
+  },
+  "volatility": {
+    "mean_drop": 0.0857380502401764,
+    "std_drop": 0.015741104804111873,
+    "p_value": 0.0,
+    "baseline_auc": 0.7264745255531931
+  }
+}

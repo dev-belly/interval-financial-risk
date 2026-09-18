@@ -1,132 +1,97 @@
-# 区间型财务数据与企业风险识别研究
+# 区间型财务数据与企业风险识别
 
-> Interval Financial Data for Enterprise Risk Identification
+**一个可复现的预测研究实验：历史分布特征是否比当期点特征更有用？**
 
-当前以合成季度财务与行情特征验证研究流程，将营收增速、利润率、现金流和波动率由单点指标扩展为季度区间与分布型特征，比较点估计模型与区间/分布特征模型对模拟风险标签的增量识别能力。仓库提供本地 CSV / Parquet 真实数据加载入口；公开数据采集、真实风险标签构建与真实市场实证尚待完成。
+[在线交互报告](https://dev-belly.github.io/interval-financial-risk/) · [离线 HTML](docs/demo/index.html) · [逐折指标](docs/demo/rolling_metrics.csv) · [复现配置与环境](docs/demo/run_manifest.json)
 
----
+项目将营收增速、利润率、经营现金流和波动率扩展为过去四个季度的分布特征，比较固定算法下的特征增量，并检查时间稳定性、概率校准、消融和标签预测区间覆盖。
 
-## 核心贡献
+**当前公开示例完全使用合成数据。此次实验中，加入区间特征没有改善 AUC。** 这一负结果与源代码、逐条测试预测一起保留，不将其包装为真实企业违约预测或因果发现。
 
-1. **区间型特征工程**：把传统单点财务指标扩展为均值、区间宽度、分位数、偏度、峰度等分布型特征。
-2. **多模型对比**：逻辑回归基线（仅均值点数据）→ Elastic Net 正则化模型 → XGBoost/LightGBM 树模型。
-3. **时间滚动验证**：严格按财报发布日期划分训练/验证/测试窗口，避免前视偏差。
-4. **稳健性检验**：置换检验（Permutation Test）+ 消融检验（Ablation Study）量化复杂特征的真实信息增量。
-5. **可解释评估**：AUC、PR-AUC、Brier 校准误差、行业分组性能、时期稳定性。
-6. **结论限定为预测关联**，不将相关性表述为因果关系。
+## 本次实测结果
 
----
+配置：[config/config.yaml](config/config.yaml)。300 家模拟公司 × 16 个季度，2019-03 至 2022-12，共 4,800 行，整体正例率 12%，随机种子 202608。三个扩展窗口测试折各有 600 行，共 1,800 条独立于对应训练窗口的测试记录。点模型使用 4 个特征，区间模型使用 48 个特征。
 
-## 项目亮点
+以下为**测试折等权均值**；AUC 的 ± 为折间标准差，不是置信区间。PR-AUC 使用 average precision，Brier 越低越好。
 
-本项目不止是"跑几个模型比 AUC"，以下三个模块具备学术与实务上的差异化锋芒：
+| 模型 | 特征 | AUC | PR-AUC | Brier |
+|---|---|---:|---:|---:|
+| Logistic Baseline | 当期点特征 | **0.7243 ± 0.0235** | **0.3441** | 0.2033 |
+| Logistic + Interval | 点 + 区间 | 0.6857 ± 0.0343 | 0.3105 | 0.2179 |
+| Elastic Net | 点 + 区间 | 0.6862 ± 0.0346 | 0.3080 | 0.2177 |
+| XGBoost | 点 + 区间 | 0.6781 ± 0.0356 | 0.3021 | **0.1469** |
+| LightGBM | 点 + 区间 | 0.6687 ± 0.0345 | 0.3251 | 0.1541 |
 
-### 1. 保形预测（Conformal Prediction）—— 给概率装上"误差条"
+同一逻辑回归算法中，加入区间特征使平均 AUC 下降 **0.0386**。树模型的 Brier 更低，但这不意味着其排序能力更强。模型均使用类别权重，输出概率没有再校准，需结合校准曲线阅读。
 
-普通模型只吐一个点概率（如"风险 0.76"），在金融场景里这是危险的：0.76 和 0.74 常被当作确信不同的两个数。
-本平台用按报告期切分的 **Split Conformal** 把点预测转成标签预测区间
-`[p-ε, p+ε]`，并报告样本外经验覆盖率。经典有限样本覆盖结论依赖样本可交换性；
-金融时间序列存在漂移和截面相关，因此这里把覆盖率当作诊断指标，而不是无条件保证或“概率置信区间”。
+![各测试折的 AUC 稳定性](docs/demo/figures/rolling_metrics.png)
 
-### 2. 双机器学习（Double / Debiased ML）—— 剥离混淆后的"纯净"效应
+**最后测试折的消融**固定使用区间逻辑回归，各变体重新训练：全部特征 AUC 0.6981；移除全部区间特征后为 0.7265（Δ +0.0283）；移除分位数后为 0.7062；移除宽度后为 0.6981。这一结果同样不支持“区间越复杂越好”。[原始消融表](docs/demo/ablation_study.csv)
 
-朴素逻辑回归会把行业、规模等混淆变量的影响混进区间特征系数。本平台用 **Chernozhukov et al. (2018) 的双机器学习**
-做正交化：用交叉拟合估计 `g(W)=E[Y|W]` 与 `m(X|W)=E[X|W]`，再对残差 `r_y ~ θ·r_x` 做回归。
-结果 `θ` 是控制配置中混杂变量后的正交化线性关联，并附 95% 置信区间。
-它用于稳健性诊断；没有外生处理或完整识别假设时，不解释为因果效应。
+![消融比较](docs/demo/figures/ablation_study.png)
 
-### 3. 可交互 HTML 报告（Plotly）
+**标签预测区间**使用预先指定的区间逻辑回归，单独按时间分为 2,700 行训练、900 行校准、1,200 行测试。名义覆盖 90%，经验覆盖 **92.25%**，平均区间宽度 **0.965**。区间几乎覆盖整个 [0,1]，高覆盖伴随很低的辨别力；这不是风险概率的置信区间。[覆盖率与宽度](docs/demo/conformal_coverage.csv)
 
-所有结果自动汇总为一个浏览器直接打开的仪表盘 `outputs/reports/report.html`：模型对比表、ROC、滚动稳定性、
-特征重要性、置换/消融检验，以及上述保形覆盖曲线与双机器学习效应条形图（均带交互与误差棒）。
-
----
-
-## 项目结构
-
-```text
-interval-financial-risk/
-├── config/                  # 实验配置
-├── data/                    # 原始/处理/合成数据
-├── notebooks/               # Jupyter 实验报告
-├── src/                     # 核心源码
-│   ├── data/                # 数据加载与合成数据生成
-│   ├── features/            # 区间特征工程与 Pipeline
-│   ├── models/              # 基线、正则化、树模型
-│   ├── evaluation/          # 评估指标、滚动验证、置换/消融检验
-│   └── visualization/       # 可视化
-├── scripts/                 # 一键运行脚本
-├── tests/                   # 单元测试
-└── outputs/                 # 结果输出
-```
-
----
-
-## 快速开始
-
-### 1. 环境准备
+## 复现
 
 ```bash
-cd interval-financial-risk
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-### 2. 运行完整实验
-
-```bash
 python scripts/run_experiment.py --config config/config.yaml
+python scripts/export_demo.py --config config/config.yaml
+python scripts/verify_demo.py
 ```
 
-> 默认配置对算力要求较低，可在普通笔记本/CI 上稳定运行。如需更大样本量 + Optuna 深度超参优化，请使用 `config/full_benchmark.yaml`（需要更多内存和运行时间）。
-
-### 3. 查看报告
+- 完整默认实验输出到 `outputs/`；导出程序仅允许合成数据，并核对完整配置与源码哈希，再更新 `docs/demo/`。
+- `docs/demo/index.html` 内嵌 Plotly.js，下载后可直接离线打开，不需要 CDN 或运行 Python 服务。
+- `config/full_benchmark.yaml` 是保留历史文件名的**小型烟雾配置**（100 家公司、12 季度、3 个模型），不是更大规模调参实验。
+- 本次环境为 Python 3.12.13；依赖版本、数据摘要与源码哈希见 [run_manifest.json](docs/demo/run_manifest.json)。跨依赖版本不承诺逐位相同。
 
 ```bash
-open outputs/reports/report.html       # macOS
-# 或直接用浏览器打开 outputs/reports/report.html
+pytest
+ruff check .
 ```
 
----
+当前 15 项测试覆盖时间索引、训练数据预处理、合成数据复现与缓存、区间宽度、完整消融、conformal 阶次、验证集模型选择和 Elastic Net 随机种子。
 
-## 数据说明
+## 如何核对结果
 
-当前默认使用**合成数据生成器**（`src/data/synthetic_generator.py`），按预设分布、行业效应和风险关系生成季度特征，用于验证完整 Pipeline。合成数据上的指标不代表真实企业风险识别效果。
+| 产物 | 用途 |
+|---|---|
+| [predictions.csv](docs/demo/predictions.csv) | 每个模型、测试折、公司和季度的真实标签与预测概率，可独立复算指标 |
+| [model_summary.csv](docs/demo/model_summary.csv) | 各折指标均值及标准差 |
+| [fold_splits.csv](docs/demo/fold_splits.csv) | 训练、验证、测试的日期、行数与正例数 |
+| [validation_metrics.csv](docs/demo/validation_metrics.csv) | 诊断模型选择的依据 |
+| [config.yaml](docs/demo/config.yaml) | 本次运行的原始配置 |
+| [run_manifest.json](docs/demo/run_manifest.json) | 配置快照、依赖版本、数据与源码哈希 |
 
-`src/data/loader.py` 中的 `RealDataLoader` 可读取配置目录下的 `financial_data.csv` 或 `financial_data.parquet`。接入真实数据仍需自行完成采集、字段与发布日期对齐、风险标签定义及质量检查；下列是可考虑的数据来源，尚未实现自动接入：
+诊断模型按**验证集平均 AUC**选择，最后测试折不参与选择；本次为点逻辑回归。消融和 conformal 使用预先固定的区间逻辑回归，避免点模型获胜时消融变成空操作，以及用校准/测试分数挑选 conformal 模型。交互 ROC/PR 图合并各折测试预测，其数值与表中的逐折平均有不同的统计口径。
 
-- A 股财报：Tushare / AkShare / CSMAR
-- 行情数据：Tushare / Yahoo Finance / 东方财富
-- 风险标签：ST 公告、违约事件、评级下调等
+## 方法边界
 
----
+- **合成标签**由预设的同期特征、行业/时间项及噪声生成；不是实际违约事件，也不是未来若干季度的违约标签。生成过程使用全样本阈值控制正例率。
+- **时间顺序**按合成 `report_date` 切分。区间包含当前季度与此前三个季度；真实财务发布日期、可得时间、重述和标签成熟期尚未验证。
+- **公司相关性**：训练和测试中存在同一公司的不同季度；没有进行未见公司外推。折间标准差不处理公司聚类依赖。
+- **校准与覆盖**：类别权重会改变概率尺度。Conformal 经典覆盖结论要求可交换性，金融漂移及公司相关性使本项目只能报告经验诊断。
+- **正交化回归**只控制行业；随机行交叉拟合和常规 OLS 区间未做公司聚类修正，不构成因果效应或稳健显著性证据。
+- **超参优化**代码存在，但默认示例关闭。当前 Optuna 内层使用随机分层折，不应宣称为嵌套时间序列验证。
+- **真实数据**仅提供本地 CSV/Parquet 加载入口；公开采集、真实标签构建与市场实证仍待完成。
 
-## 技术栈
+## 实现
 
-- **Python 3.11+**
-- **数据处理**：Polars、Pandas、NumPy
-- **机器学习**：scikit-learn、XGBoost、LightGBM、CatBoost
-- **超参优化**：Optuna
-- **数据验证**：Great Expectations
-- **配置管理**：Pydantic、Hydra
-- **可视化**：Plotly、Matplotlib、Seaborn
-- **可复现**：Git LFS、DVC（可选）
-- **测试**：pytest
+Python 3.11+；Pandas / NumPy / PyArrow；scikit-learn、XGBoost、LightGBM；Optuna（可选调参路径）；Pydantic / YAML 配置；Plotly、Matplotlib、Seaborn；pytest / Ruff。仓库未实现 CatBoost、Hydra、Great Expectations、DVC 或自动金融数据接口。
 
----
+```text
+config/             实验参数
+src/data/           合成生成器与本地加载
+src/features/       区间工程、训练集插补与标准化
+src/models/         逻辑回归、Elastic Net、树模型
+src/evaluation/     时间验证、指标、消融与覆盖诊断
+src/visualization/  静态图和离线交互报告
+scripts/            运行、导出、独立核验
+tests/              回归测试
+docs/demo/          已运行的公开合成示例
+```
 
-## 主要结果
-
-实验结果将输出到 `outputs/` 目录：
-
-- `outputs/figures/`：校准曲线、ROC/PR 曲线、滚动性能、特征重要性、置换/消融检验图
-- `outputs/reports/`：指标表格、LaTeX/Markdown 实验报告
-- `outputs/models/`：序列化模型与预处理 Pipeline
-
----
-
-## 作者与协议
-
-独立研究项目，2026.08 — 至今。  
-代码采用 [MIT License](LICENSE)。
+独立研究项目。代码采用 [MIT License](LICENSE)。

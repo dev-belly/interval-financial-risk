@@ -15,7 +15,9 @@ from src.config import Config
 logger = logging.getLogger(__name__)
 
 
-def _rolling_stats(group: pd.DataFrame, feature: str, window: int, stats: list[str]) -> pd.DataFrame:
+def _rolling_stats(
+    group: pd.DataFrame, feature: str, window: int, stats: list[str]
+) -> pd.DataFrame:
     """Compute rolling distribution statistics for a single feature."""
 
     s = group[feature]
@@ -89,6 +91,13 @@ def build_interval_features(df: pd.DataFrame, config: Config) -> pd.DataFrame:
             max_col = f"{feature}_max"
             if min_col in df.columns and max_col in df.columns:
                 df[f"{feature}_width"] = df[max_col] - df[min_col]
+            elif feature in df.columns:
+                df[f"{feature}_width"] = df.groupby("company_id")[feature].transform(
+                    lambda s: (
+                        s.rolling(window, min_periods=1).max()
+                        - s.rolling(window, min_periods=1).min()
+                    )
+                )
 
     # Add a few engineered ratio features
     for feature in config.features.interval_features:

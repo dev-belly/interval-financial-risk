@@ -84,7 +84,7 @@ evaluation:
   ablation_groups:
     - name: "interval_stats"
       description: "移除所有区间统计特征"
-      remove_patterns: ["_std", "_q25", "_q75", "_width"]
+      remove_patterns: ["_mean", "_cv", "_std", "_q25", "_q75", "_width"]
     - name: "quantiles"
       description: "移除分位数特征"
       remove_patterns: ["_q25", "_q75"]

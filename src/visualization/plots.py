@@ -218,6 +218,6 @@ def plot_double_ml(
     ax.set_yticks(y)
     ax.set_yticklabels(df["feature"])
     ax.axvline(0, color="black", linewidth=0.8)
-    ax.set_xlabel("theta (正交化边际效应, 控制行业后)")
-    ax.set_title("双机器学习: 区间特征的纯净边际效应")
+    ax.set_xlabel("theta (industry-adjusted linear association)")
+    ax.set_title("Conditional associations (exploratory; OLS intervals)")
     _savefig(fig, output_path)

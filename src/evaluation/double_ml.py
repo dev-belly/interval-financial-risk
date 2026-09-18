@@ -1,20 +1,9 @@
-"""Double / Debiased Machine Learning for orthogonalized effect estimation.
+"""Cross-fitted residual regression for exploratory conditional association.
 
-A plain logistic regression of risk on interval features is confounded:
-industry, scale and business cycle drive both the financial ratios and the
-risk label, so naive coefficients mix the interval-feature signal with
-confounder bias. Double ML (Chernozhukov et al., 2018) removes this bias via
-orthogonalization with cross-fitting:
-
-    y = theta * X + g(W) + u
-    X = m(W) + v
-
-We regress the *residuals* r_y = y - g(W) on r_x = X - m(W). Because g and m
-are estimated by flexible ML on held-out folds, theta is root-n consistent and
-the confounder bias vanishes at rate 1/sqrt(n) instead of staying O(1). The
-result is the *clean* marginal contribution of each interval feature after
-controlling for industry / scale / cycle -- the number the research question
-actually wants.
+The current pipeline controls industry only. Random row folds and ordinary OLS
+standard errors do not account for company dependence or establish causal effects.
+Logistic coefficients use log-odds units and cannot quantify bias reduction in
+the linear probability coefficients reported here.
 """
 
 from __future__ import annotations
@@ -34,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _encode_confounds(W: pd.DataFrame) -> tuple[Any, list[str]]:
-    cat_cols = W.select_dtypes(include=["object", "category"]).columns.tolist()
+    cat_cols = W.select_dtypes(include=["object", "category", "string"]).columns.tolist()
     num_cols = W.select_dtypes(include=[np.number]).columns.tolist()
     transformers = []
     if cat_cols:
@@ -117,7 +106,6 @@ def double_ml_partial_linear(
         }
     )
     out["significant"] = (out["ci_low"] > 0) | (out["ci_high"] < 0)
-    out["bias_reduction"] = out["naive_coef"] - out["theta_orthogonalized"]
     logger.info(
         "Double ML: %d features, %d significant after orthogonalization",
         d,
