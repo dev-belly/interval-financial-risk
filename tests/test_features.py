@@ -67,6 +67,28 @@ def test_missing_configured_point_feature_fails_before_fitting(config, synthetic
         FeaturePipeline(config).fit_transform(synthetic_df.drop(columns=["profit_margin"]))
 
 
+def test_entirely_missing_training_feature_preserves_model_column(config):
+    train = pd.DataFrame(
+        {
+            "revenue_growth": [0.1, 0.2, 0.3, 0.4],
+            "profit_margin": [0.2, 0.3, 0.4, 0.5],
+            "operating_cash_flow": [np.nan] * 4,
+            "volatility": [0.1, 0.2, 0.3, 0.4],
+            "risk_label": [0, 1, 0, 1],
+        }
+    )
+    pipeline = FeaturePipeline(config)
+    X_train, _, _ = pipeline.fit_transform(train, engineer_features=False)
+    assert X_train.shape[1] == len(pipeline.get_feature_names()) == 4
+    assert np.isfinite(X_train).all()
+
+    test = train.iloc[:1].copy()
+    test["operating_cash_flow"] = 0.7
+    X_test, _, _ = pipeline.transform(test, engineer_features=False)
+    assert X_test.shape == (1, 4)
+    assert X_test[0, pipeline.get_feature_names().index("operating_cash_flow")] == 0.7
+
+
 def test_synthetic_generation_is_reproducible(config):
     first = generate_synthetic_data(config)
     second = generate_synthetic_data(config)

@@ -54,12 +54,16 @@ def test_saved_point_model_pipeline_matches_in_memory_prediction(tmp_path):
     config.data.synthetic.n_companies = 30
     raw = generate_synthetic_data(config)
     prepared = build_interval_features(raw, config)
-    train = prepared[prepared.report_date < "2021-01-01"]
+    train = prepared[prepared.report_date < "2021-01-01"].copy()
     test = prepared[prepared.report_date >= "2021-01-01"]
+    # The point feature is absent throughout training but present at inference.
+    # Its position must survive preprocessing and serialization.
+    train["operating_cash_flow"] = np.nan
 
     features = FeaturePipeline(config)
     X_train, y_train, _ = features.fit_transform(train, engineer_features=False)
     names = features.get_feature_names()
+    assert X_train.shape[1] == len(names)
     point_names = config.features.point_features
     point_indices = [names.index(name) for name in point_names]
     model = LogisticBaselineModel({}, "point_only", "point model", config)

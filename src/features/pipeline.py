@@ -85,7 +85,10 @@ class FeaturePipeline:
                         steps=[
                             (
                                 "imputer",
-                                SimpleImputer(strategy=self.config.features.impute_strategy),
+                                SimpleImputer(
+                                    strategy=self.config.features.impute_strategy,
+                                    keep_empty_features=True,
+                                ),
                             ),
                             ("scaler", StandardScaler()),
                         ]
