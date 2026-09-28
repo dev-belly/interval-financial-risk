@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -44,6 +45,26 @@ def test_feature_pipeline_fit_transform(config, synthetic_df):
     assert X.shape[1] == len(pipeline.get_feature_names())
     assert len(y) == len(synthetic_df)
     assert not pd.isna(X).any()
+
+
+def test_unconfigured_numeric_columns_do_not_enter_the_model(config, synthetic_df):
+    plain = FeaturePipeline(config)
+    plain_x, _, _ = plain.fit_transform(synthetic_df)
+
+    augmented = synthetic_df.assign(
+        future_risk_label=synthetic_df["risk_label"],
+        numeric_record_id=np.arange(len(synthetic_df)),
+    )
+    guarded = FeaturePipeline(config)
+    guarded_x, _, _ = guarded.fit_transform(augmented)
+
+    assert guarded.get_feature_names() == plain.get_feature_names()
+    np.testing.assert_array_equal(guarded_x, plain_x)
+
+
+def test_missing_configured_point_feature_fails_before_fitting(config, synthetic_df):
+    with pytest.raises(ValueError, match="Missing configured point features"):
+        FeaturePipeline(config).fit_transform(synthetic_df.drop(columns=["profit_margin"]))
 
 
 def test_synthetic_generation_is_reproducible(config):

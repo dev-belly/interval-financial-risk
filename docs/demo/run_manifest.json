@@ -193,11 +193,11 @@
   "python": "3.12.13",
   "dependencies": {
     "numpy": "2.5.3",
-    "pandas": "3.0.5",
+    "pandas": "3.0.6",
     "scikit-learn": "1.9.1",
     "xgboost": "3.4.1",
     "lightgbm": "4.7.0",
     "plotly": "7.1.0"
   },
-  "source_sha256": "4fb004bb2f41294df9d2c6ac1416f9b93186c4565377566031578e2942d23c86"
+  "source_sha256": "7c1e7deafe9a4aca010a8eeb2e6e2eed1360f365c9a091b2dc1e035acf717daa"
 }

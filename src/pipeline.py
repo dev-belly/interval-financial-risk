@@ -14,6 +14,8 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import FunctionTransformer
 
 from src.config import Config
 from src.data.loader import load_data
@@ -30,6 +32,32 @@ from src.visualization import html_report as html_report_mod
 from src.visualization import plots
 
 logger = logging.getLogger(__name__)
+
+
+def _select_model_columns(X: np.ndarray, *, indices: list[int]) -> np.ndarray:
+    """Select model inputs after the saved full-feature preprocessor runs."""
+
+    return X[:, indices]
+
+
+def build_prepared_frame_pipeline(best_model: RiskModel, feature_pipe: FeaturePipeline) -> Pipeline:
+    """Build a fitted predictor for frames with interval features already added."""
+
+    if feature_pipe._preprocessor is None or best_model.model is None:
+        raise ValueError("The preprocessor and model must both be fitted")
+    all_names = feature_pipe.get_feature_names()
+    selected_names = best_model.feature_names
+    indices = [all_names.index(name) for name in selected_names]
+    return Pipeline(
+        [
+            ("preprocessor", feature_pipe._preprocessor),
+            (
+                "model_columns",
+                FunctionTransformer(_select_model_columns, kw_args={"indices": indices}),
+            ),
+            ("model", best_model.model),
+        ]
+    )
 
 
 class ExperimentPipeline:
@@ -470,7 +498,13 @@ class ExperimentPipeline:
 
         joblib.dump(best_model.model, models_dir / "best_model.joblib")
         joblib.dump(feature_pipe._preprocessor, models_dir / "preprocessor.joblib")
+        joblib.dump(
+            build_prepared_frame_pipeline(best_model, feature_pipe),
+            models_dir / "prepared_frame_pipeline.joblib",
+        )
         with open(models_dir / "feature_names.pkl", "wb") as fh:
             pickle.dump(feature_pipe.get_feature_names(), fh)
+        with open(models_dir / "model_feature_names.pkl", "wb") as fh:
+            pickle.dump(best_model.feature_names, fh)
 
         logger.info("Saved artifacts to %s and %s", reports_dir, models_dir)

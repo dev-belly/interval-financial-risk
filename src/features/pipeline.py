@@ -32,11 +32,31 @@ class FeaturePipeline:
         self._preprocessor: ColumnTransformer | None = None
 
     def _select_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Select columns that should enter the model."""
+        """Use only the point and interval features declared by the experiment.
 
-        exclude = {"company_id", "report_date", "industry", "risk_label"}
-        feature_cols = [c for c in df.columns if c not in exclude]
-        return df[feature_cols]
+        Local financial files often contain numeric IDs, later outcomes, or
+        other analysis columns.  Automatically admitting every numeric column
+        would silently change the experiment and can leak the target.
+        """
+
+        features = self.config.features
+        missing_points = set(features.point_features) - set(df.columns)
+        if missing_points:
+            raise ValueError(f"Missing configured point features: {sorted(missing_points)}")
+
+        allowed = set(features.point_features)
+        for feature in features.interval_features:
+            allowed.update(f"{feature}_{stat}" for stat in features.interval_stats)
+            if features.use_interval_width:
+                allowed.add(f"{feature}_width")
+            if {"mean", "std"}.issubset(features.interval_stats):
+                allowed.add(f"{feature}_cv")
+
+        selected = [column for column in df.columns if column in allowed]
+        nonnumeric = df[selected].select_dtypes(exclude=[np.number]).columns.tolist()
+        if nonnumeric:
+            raise ValueError(f"Configured features must be numeric: {nonnumeric}")
+        return df[selected]
 
     def fit_transform(
         self, df: pd.DataFrame, *, engineer_features: bool = True
@@ -63,7 +83,10 @@ class FeaturePipeline:
                     "num",
                     Pipeline(
                         steps=[
-                            ("imputer", SimpleImputer(strategy=self.config.features.impute_strategy)),
+                            (
+                                "imputer",
+                                SimpleImputer(strategy=self.config.features.impute_strategy),
+                            ),
                             ("scaler", StandardScaler()),
                         ]
                     ),

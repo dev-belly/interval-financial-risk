@@ -47,6 +47,9 @@ python scripts/verify_demo.py
 - `docs/demo/index.html` 内嵌 Plotly.js，下载后可直接离线打开，不需要 CDN 或运行 Python 服务。
 - `config/full_benchmark.yaml` 是保留历史文件名的**小型烟雾配置**（100 家公司、12 季度、3 个模型），不是更大规模调参实验。
 - 本次环境为 Python 3.12.13；依赖版本、数据摘要与源码哈希见 [run_manifest.json](docs/demo/run_manifest.json)。跨依赖版本不承诺逐位相同。
+- 入模列严格限定为配置中的点特征及其区间统计；本地数据里额外的数值 ID 或后验字段不会被自动当作预测特征。
+
+实验会在 `outputs/models/prepared_frame_pipeline.joblib` 保存最终诊断模型和匹配的预处理器。它接收**已按完整历史面板构造区间特征**的 DataFrame；例如先用 `build_interval_features(raw, config)`，再调用 `joblib.load(...).predict_proba(prepared)[:, 1]`。不能只截取待预测季度再计算滚动特征，否则历史窗口会丢失。原始模型、预处理器和对应的完整列名与模型入模列名也分别保存在同一目录。
 
 ```bash
 pytest
