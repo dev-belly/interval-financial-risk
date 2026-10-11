@@ -52,9 +52,9 @@ def main():
         computed, summary.loc[computed.index, computed.columns], rtol=0, atol=1e-12
     )
     resources = Resources()
-    resources.feed((DEMO / "index.html").read_text())
+    resources.feed((DEMO / "index.html").read_text(encoding="utf-8"))
     assert not resources.external, resources.external
-    manifest = json.loads((DEMO / "run_manifest.json").read_text())
+    manifest = json.loads((DEMO / "run_manifest.json").read_text(encoding="utf-8"))
     assert manifest["data"]["source"] == "synthetic"
     print(
         f"PASS: {len(rows)} model/fold evaluations recomputed from {len(predictions)} predictions; no external HTML resources."

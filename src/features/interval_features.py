@@ -26,7 +26,7 @@ def _rolling_stats(
     if "mean" in stats:
         result[f"{feature}_mean"] = s.rolling(window=window, min_periods=1).mean()
     if "std" in stats:
-        result[f"{feature}_std"] = s.rolling(window=window, min_periods=2).std().fillna(0)
+        result[f"{feature}_std"] = s.rolling(window=window, min_periods=min(2, window)).std().fillna(0)
     if "min" in stats:
         result[f"{feature}_min"] = s.rolling(window=window, min_periods=1).min()
     if "max" in stats:
@@ -38,9 +38,9 @@ def _rolling_stats(
     if "q75" in stats:
         result[f"{feature}_q75"] = s.rolling(window=window, min_periods=1).quantile(0.75)
     if "skew" in stats:
-        result[f"{feature}_skew"] = s.rolling(window=window, min_periods=3).skew().fillna(0)
+        result[f"{feature}_skew"] = s.rolling(window=window, min_periods=min(3, window)).skew().fillna(0)
     if "kurt" in stats:
-        result[f"{feature}_kurt"] = s.rolling(window=window, min_periods=4).kurt().fillna(0)
+        result[f"{feature}_kurt"] = s.rolling(window=window, min_periods=min(4, window)).kurt().fillna(0)
 
     return result
 

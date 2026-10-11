@@ -20,7 +20,7 @@ def main():
     args = parser.parse_args()
     config = load_config(ROOT / args.config)
     report_dir = config.output.reports_dir
-    manifest = json.loads((report_dir / "run_manifest.json").read_text())
+    manifest = json.loads((report_dir / "run_manifest.json").read_text(encoding="utf-8"))
     if not config.data.use_synthetic or manifest["data"]["source"] != "synthetic":
         raise ValueError("The public demo exporter accepts synthetic runs only")
     expected = config.model_dump(mode="json")

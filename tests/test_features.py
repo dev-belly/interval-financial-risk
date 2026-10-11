@@ -38,6 +38,29 @@ def test_interval_features_created(config, synthetic_df):
         assert f"{feature}_std" in df.columns
 
 
+@pytest.mark.parametrize("window", [1, 2, 3])
+def test_short_interval_windows_keep_undefined_moments_at_zero(config, window):
+    config.features.interval_window = window
+    config.features.interval_features = ["revenue_growth"]
+    frame = pd.DataFrame(
+        {
+            "company_id": ["A"] * 4,
+            "report_date": pd.date_range("2020-03-31", periods=4, freq="QE"),
+            "revenue_growth": [1.0, 2.0, 3.0, 4.0],
+        }
+    )
+    result = build_interval_features(frame, config)
+    np.testing.assert_allclose(
+        result["revenue_growth_mean"], frame["revenue_growth"].rolling(window, min_periods=1).mean()
+    )
+    assert np.isfinite(result.select_dtypes(include="number")).all().all()
+    assert (result["revenue_growth_kurt"] == 0).all()
+    if window == 1:
+        assert (result["revenue_growth_std"] == 0).all()
+    if window < 3:
+        assert (result["revenue_growth_skew"] == 0).all()
+
+
 def test_feature_pipeline_fit_transform(config, synthetic_df):
     pipeline = FeaturePipeline(config)
     X, y, meta = pipeline.fit_transform(synthetic_df)
