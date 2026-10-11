@@ -38,6 +38,8 @@ class RollingWindowValidator:
         test_window = cfg.test_quarters
         step = cfg.step_quarters
         min_samples = cfg.min_train_samples
+        if min(initial, test_window, step) <= 0:
+            raise ValueError("Rolling train, test and step quarters must be positive")
 
         n_dates = len(self.unique_dates)
         start = initial

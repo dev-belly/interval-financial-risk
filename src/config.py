@@ -73,7 +73,7 @@ class FeaturesConfig(BaseModel):
             "volatility",
         ]
     )
-    interval_window: int = 4
+    interval_window: int = Field(default=4, gt=0)
     interval_stats: list[str] = Field(
         default_factory=lambda: [
             "mean",
@@ -110,9 +110,9 @@ class ValidationConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     method: str = "rolling_window"
-    initial_train_quarters: int = 8
-    test_quarters: int = 2
-    step_quarters: int = 2
+    initial_train_quarters: int = Field(default=8, gt=0)
+    test_quarters: int = Field(default=2, gt=0)
+    step_quarters: int = Field(default=2, gt=0)
     min_train_samples: int = 200
 
 
