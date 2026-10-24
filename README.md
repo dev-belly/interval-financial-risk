@@ -48,6 +48,7 @@ python scripts/verify_demo.py
 - `config/full_benchmark.yaml` 是保留历史文件名的**小型烟雾配置**（100 家公司、12 季度、3 个模型），不是更大规模调参实验。
 - 本次环境为 Python 3.12.13；依赖版本、数据摘要与源码哈希见 [run_manifest.json](docs/demo/run_manifest.json)。跨依赖版本不承诺逐位相同。
 - 入模列严格限定为配置中的点特征及其区间统计；本地数据里额外的数值 ID 或后验字段不会被自动当作预测特征。
+- 区间窗口按日历季度计算，包含当季和此前 `interval_window - 1` 季；缺季度不会拉长窗口，也不会补造观测。每家公司每季最多一条记录，重复季度须在上游解决；`report_date` 需要有效且不带时区的日历日期，公司 ID 不能缺失。例如 2021Q1 的四季度窗口会排除 2020Q1。已发布的 4,800 行完整季度面板在该修复前后的全部特征完全一致，历史报告与其原始运行清单保留。
 
 实验会在 `outputs/models/prepared_frame_pipeline.joblib` 保存最终诊断模型和匹配的预处理器。它接收**已按完整历史面板构造区间特征**的 DataFrame；例如先用 `build_interval_features(raw, config)`，再调用 `joblib.load(...).predict_proba(prepared)[:, 1]`。不能只截取待预测季度再计算滚动特征，否则历史窗口会丢失。原始模型、预处理器和对应的完整列名与模型入模列名也分别保存在同一目录。
 
@@ -56,7 +57,7 @@ pytest
 ruff check .
 ```
 
-当前 15 项测试覆盖时间索引、训练数据预处理、合成数据复现与缓存、区间宽度、完整消融、conformal 阶次、验证集模型选择和 Elastic Net 随机种子。
+当前 45 项测试覆盖时间索引、缺季度窗口与公司行对齐、重复季度/无效日期、训练数据预处理、合成数据复现与缓存、区间宽度、完整消融、conformal 阶次、验证集模型选择和 Elastic Net 随机种子。
 
 ## 如何核对结果
 
