@@ -67,13 +67,15 @@ def build_html_report(
         first = False
         parts.append(f"<div class='card'><h2>{title}</h2>{div}</div>")
 
+    kind = "合成数据演示" if config.data.use_synthetic else "输入面板数据"
+    window = config.features.interval_window
     # ---- Title ----
     parts.append(
-        "<div class='card'><h1>区间型财务数据与企业风险识别 — 交互报告</h1>"
+        "<header class='card cover'><h1>区间财务风险识别</h1>"
         f"<p>项目: {html.escape(config.project.name)} | 随机种子: {config.project.seed}</p>"
-        "<p class=notice>合成数据演示 · 结果用于检验研究流程，不代表真实企业风险识别能力。</p>"
-        "<p>比较点特征与过去四个季度的分布特征；同一公司的未来季度进入测试集。"
-        "报告期是合成季度标记，尚未证明真实财报发布日期可得性。</p></div>"
+        f"<p class=notice>{kind} · 窗口 {window} 个季度</p>"
+        f"<p>比较点特征与过去 {window} 个季度的分布特征。测试集使用时间上更靠后的季度。"
+        "报告期与实际可得日期需要分别核对。</p></header>"
     )
 
     data = results.get("data_summary", {})
@@ -100,25 +102,27 @@ def build_html_report(
         )
 
     # ---- ROC ----
-    if "all_results" in results:
-        fig = go.Figure(_roc_traces(results["all_results"]))
+    evaluated = {name: folds for name, folds in results.get("all_results", {}).items() if folds}
+    if evaluated:
+        fig = go.Figure(_roc_traces(evaluated))
         fig.update_layout(
             title="ROC 曲线 (跨所有滚动折)",
             xaxis_title="False Positive Rate",
             yaxis_title="True Positive Rate",
-            template="plotly_dark",
+            template="plotly_white",
             height=420,
         )
         _add(fig, "ROC 曲线")
 
     # ---- Calibration and precision-recall on held-out predictions ----
-    if "all_results" in results:
+    if evaluated:
         from sklearn.calibration import calibration_curve
         from sklearn.metrics import average_precision_score, precision_recall_curve
 
         calibration = go.Figure()
         pr = go.Figure()
-        for name, folds in results["all_results"].items():
+        rates = []
+        for name, folds in evaluated.items():
             truth = np.concatenate([f["y_true"] for f in folds])
             probability = np.concatenate([f["y_proba"] for f in folds])
             observed, predicted = calibration_curve(
@@ -128,6 +132,7 @@ def build_html_report(
                 go.Scatter(x=predicted, y=observed, mode="lines+markers", name=name)
             )
             precision, recall, _ = precision_recall_curve(truth, probability)
+            rates.append(float(truth.mean()))
             pr.add_trace(
                 go.Scatter(
                     x=recall,
@@ -140,17 +145,18 @@ def build_html_report(
             go.Scatter(x=[0, 1], y=[0, 1], name="Perfect calibration", line=dict(dash="dash"))
         )
         calibration.update_layout(
-            template="plotly_dark",
+            template="plotly_white",
             height=430,
             xaxis_title="Mean predicted probability",
             yaxis_title="Observed positive fraction",
         )
-        pr.add_hline(y=float(truth.mean()), line_dash="dash", annotation_text="Test prevalence")
+        if all(np.isclose(rate, rates[0]) for rate in rates):
+            pr.add_hline(y=rates[0], line_dash="dash", annotation_text="Test prevalence")
         pr.update_layout(
-            template="plotly_dark", height=430, xaxis_title="Recall", yaxis_title="Precision"
+            template="plotly_white", height=430, xaxis_title="Recall", yaxis_title="Precision"
         )
         _add(calibration, "概率校准：预测风险与实际标签频率")
-        _add(pr, "Precision–Recall：与测试正例率对照")
+        _add(pr, "Precision–Recall 曲线")
 
     # ---- Rolling metrics ----
     if "rolling" in results:
@@ -166,7 +172,7 @@ def build_html_report(
                     name=name,
                 )
             )
-        fig.update_layout(title="滚动 AUC 稳定性", template="plotly_dark", height=380)
+        fig.update_layout(title="滚动 AUC 稳定性", template="plotly_white", height=380)
         _add(fig, "滚动验证稳定性")
 
     # ---- Feature importance ----
@@ -176,7 +182,7 @@ def build_html_report(
         names = [k for k, _ in items]
         vals = [float(v) for _, v in items]
         fig = go.Figure(go.Bar(x=vals, y=names, orientation="h"))
-        fig.update_layout(title="特征重要性 (最佳模型)", template="plotly_dark", height=420)
+        fig.update_layout(title="特征重要性 (最佳模型)", template="plotly_white", height=420)
         _add(fig, "特征重要性")
 
     # ---- Permutation ----
@@ -190,7 +196,7 @@ def build_html_report(
         feats = [name for name, _ in items]
         drops = [values.get("mean_drop", 0.0) for _, values in items]
         fig = go.Figure(go.Bar(x=drops, y=feats, orientation="h"))
-        fig.update_layout(title="置换检验 (AUC 下降)", template="plotly_dark", height=380)
+        fig.update_layout(title="置换检验 (AUC 下降)", template="plotly_white", height=380)
         _add(fig, "置换重要性检验")
 
     # ---- Ablation ----
@@ -204,7 +210,7 @@ def build_html_report(
         if "auc_delta" in ab.columns:
             fig = go.Figure(go.Bar(x=ab["ablation"], y=ab["auc_delta"]))
             fig.update_layout(
-                title="消融检验 (AUC Δ vs 全模型)", template="plotly_dark", height=360
+                title="消融检验 (AUC Δ vs 全模型)", template="plotly_white", height=360
             )
             _add(fig, "消融检验")
 
@@ -238,7 +244,7 @@ def build_html_report(
             title="保形预测: 经验 vs 名义覆盖率",
             xaxis_title="名义覆盖率 (1-α)",
             yaxis_title="经验覆盖率",
-            template="plotly_dark",
+            template="plotly_white",
             height=380,
         )
         _add(fig, "保形预测校准 (覆盖率有效性)")
@@ -264,7 +270,7 @@ def build_html_report(
         fig.update_layout(
             title="正交化线性关联（探索性；常规 OLS 区间）",
             xaxis_title="theta (仅控制行业)",
-            template="plotly_dark",
+            template="plotly_white",
             height=460,
         )
         _add(fig, "正交化关联诊断")
@@ -283,13 +289,17 @@ def build_html_report(
     document = (
         "<!DOCTYPE html><html lang='zh'><head><meta charset='utf-8'>"
         "<title>区间型财务风险识别报告</title><meta name=viewport content='width=device-width, initial-scale=1'>"
-        "<style>body{background:#0e1116;color:#e6e6e6;font-family:-apple-system,"
-        "Segoe UI,Roboto,sans-serif;margin:0;padding:24px;}"
-        ".card{background:#161b22;border:1px solid #2d333b;border-radius:12px;"
-        "padding:18px;margin-bottom:20px;}h1{margin:0 0 8px;}h2{margin-top:0;}"
-        "table.tbl{border-collapse:collapse;width:100%;font-size:13px;}"
-        "table.tbl th,table.tbl td{border:1px solid #2d333b;padding:6px 10px;}"
-        "table.tbl th{background:#21262d;}.scroll{overflow:auto}.notice{color:#8ed8e8;font-weight:600}body{max-width:1280px;margin:auto}p{line-height:1.7;overflow-wrap:anywhere}pre{white-space:pre-wrap}h1{font-size:28px}details{padding:12px 0}</style></head><body>"
+        "<style>*,*::before,*::after{box-sizing:border-box}body{background:#f4f6fb;color:#1a2741;"
+        "font:16px/1.58 -apple-system,Segoe UI,Roboto,sans-serif;max-width:1280px;"
+        "margin:auto;padding:clamp(12px,4vw,52px)}"
+        ".card{background:#fff;border:1px solid #dbe3ef;border-radius:20px;"
+        "padding:clamp(14px,2.7vw,30px);margin-bottom:16px;min-width:0}"
+        ".cover{padding:clamp(23px,6vw,64px);background:radial-gradient(ellipse at 95% 100%,#e4ecff,transparent 69%),#fff}"
+        "h1{margin:0 0 8px;font-size:clamp(2rem,6.2vw,5rem);letter-spacing:-.065em;line-height:1.12}h2{margin-top:0}"
+        "table.tbl{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}"
+        "table.tbl th,table.tbl td{border:1px solid #dbe3ef;padding:8px 11px}"
+        "table.tbl th{background:#edf2fa}.scroll{overflow:auto}.notice{color:#2155a9;font-weight:650}"
+        "p{line-height:1.65;overflow-wrap:anywhere}pre{white-space:pre-wrap}details{padding:12px 0}</style></head><body>"
         + "".join(parts)
         + "</body></html>"
     )
